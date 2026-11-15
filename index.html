@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Phòng thi Trực tuyến</title>
+    <link rel="stylesheet" href="style.css">
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            },
+            svg: { fontCache: 'global' }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+<body>
+    <header>
+        <div class="logo" onclick="backToHomeSafe()" style="cursor:pointer;">🏛️ Hệ thống Luyện thi</div>
+        <div class="account-area">
+            <span id="user-display" class="user-info">Chưa đăng nhập</span>
+            <button id="btnAdmin" class="btn-danger" style="display: none;" onclick="openAdminLevel1()">⚙️ Quản trị viên</button>
+            <button id="btnLogin" class="btn-primary" onclick="handleAuthClick()">Đăng nhập</button>
+        </div>
+    </header>
+
+    <main id="main-container">
+        <!-- MÀN HÌNH 1: CHỌN KỲ THI -->
+        <div id="screen-exams" class="content-box">
+            <h2>Chọn Kỳ Thi</h2>
+            <div class="card-container">
+                <div class="exam-card active" onclick="openTSA()">
+                    <h3>Đánh giá tư duy (TSA)</h3><p class="status-open">Đang mở</p>
+                </div>
+                <div class="exam-card locked" onclick="alert('Phần đề HSA sẽ được thiết kế riêng sau!')">
+                    <h3>Đánh giá năng lực (HSA)</h3><p>Đang xây dựng</p>
+                </div>
+                <div class="exam-card locked" onclick="alert('Phần đề THPT sẽ được thiết kế riêng sau!')">
+                    <h3>Trung học Phổ thông (THPT)</h3><p>Đang xây dựng</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- MÀN HÌNH 2: 4 BÀI THI TRONG TSA -->
+        <div id="screen-tsa-subjects" class="content-box" style="display: none;">
+            <button class="btn-back" onclick="showScreen('screen-exams')">⬅ Quay lại Kỳ thi</button>
+            <h2>Kỳ thi Đánh giá tư duy (TSA)</h2>
+            <p id="tsa-login-notice" class="notice-text">Vui lòng đăng nhập để xem số lượt làm bài của bạn.</p>
+            <div class="card-container">
+                <div class="subject-card" onclick="openSubjectTests('Toán học')"><h3>Toán học</h3><p class="attempt-info" id="attempt-Toán học">-</p></div>
+                <div class="subject-card" onclick="openSubjectTests('Đọc hiểu')"><h3>Đọc hiểu</h3><p class="attempt-info" id="attempt-Đọc hiểu">-</p></div>
+                <div class="subject-card" onclick="openSubjectTests('Khoa học')"><h3>Khoa học</h3><p class="attempt-info" id="attempt-Khoa học">-</p></div>
+                <div class="subject-card highlight" onclick="openSubjectTests('Tổng hợp')"><h3>Bài thi Tổng hợp</h3><p class="attempt-info" id="attempt-Tổng hợp">-</p></div>
+            </div>
+        </div>
+
+        <!-- MÀN HÌNH 3: DANH SÁCH ĐỀ -->
+        <div id="screen-test-list" class="content-box" style="display: none;">
+            <button class="btn-back" onclick="showScreen('screen-tsa-subjects')">⬅ Quay lại chọn môn</button>
+            <h2 id="test-list-title">Danh sách đề</h2>
+            <div class="card-container" id="test-list-container"></div>
+        </div>
+
+        <!-- MÀN HÌNH 4: PHÒNG LÀM BÀI THỰC TẾ (HỖ TRỢ CHIA ĐÔI MÀN HÌNH CHO ĐỌC HIỂU / KHOA HỌC) -->
+        <div id="screen-exam-room" class="exam-room-wrapper" style="display: none;">
+            <div class="exam-topbar">
+                <div>
+                    <h3 id="exam-room-title">Đề thi</h3>
+                    <span id="exam-student-name" style="font-size: 13px; color: #555;"></span>
+                </div>
+                <div class="exam-timer-box">⏳ Thời gian: <span id="exam-countdown">30:00</span></div>
+                <button class="btn-submit-exam" onclick="submitExam(false)">Nộp bài sớm</button>
+            </div>
+
+            <div id="exam-body-grid" class="exam-body">
+                <!-- Cột Trái (Chỉ hiện khi câu hỏi có bài đọc / ngữ liệu dài) -->
+                <div id="exam-passage-panel" class="exam-passage-panel" style="display: none;">
+                    <div id="passage-header-tag" class="passage-header-tag">VĂN BẢN ĐỌC HIỂU</div>
+                    <h3 id="passage-title" class="passage-title"></h3>
+                    <div id="passage-content" class="passage-content"></div>
+                </div>
+
+                <!-- Cột Giữa: Câu hỏi và Khu vực chọn đáp án -->
+                <div class="exam-question-panel">
+                    <div class="q-header-bar">
+                        <span id="current-q-number" class="q-badge">Câu</span>
+                        <span id="current-q-type" class="q-type-label">Loại</span>
+                        <span id="current-q-timer" class="q-time-counter">⏱ 0s</span>
+                    </div>
+                    <div id="exam-q-prompt" class="exam-q-prompt"></div>
+                    <div id="exam-q-image-box" class="exam-q-image-box" style="display: none;">
+                        <img id="exam-q-image" src="" alt="Hình minh họa">
+                    </div>
+                    <div id="exam-q-interaction" class="exam-q-interaction"></div>
+                    <div class="exam-nav-buttons">
+                        <button id="btnPrevQ" class="btn-secondary" onclick="navigateQuestion(-1)">⬅ Câu trước</button>
+                        <button id="btnNextQ" class="btn-primary" onclick="navigateQuestion(1)">Câu tiếp theo ➡</button>
+                    </div>
+                </div>
+
+                <!-- Cột Phải: Bảng số thứ tự câu hỏi -->
+                <div class="exam-palette-panel">
+                    <h4>Danh sách câu hỏi</h4>
+                    <p style="font-size: 12px; color: #666; margin-bottom: 10px;">Xanh: Đã trả lời | Xám: Chưa làm</p>
+                    <div id="question-palette" class="palette-grid"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MÀN HÌNH 5: KẾT QUẢ SAU KHI NỘP BÀI -->
+        <div id="screen-exam-result" class="content-box" style="display: none;">
+            <h2 style="color: #28a745;">🎉 Nộp bài thành công!</h2>
+            <div id="exam-result-summary" style="margin: 20px 0; padding: 20px; background: #e7f5ff; border-radius: 8px; font-size: 18px; border: 2px solid #b8daff;"></div>
+            <h3 style="text-align: left; color: #004a99; margin-bottom: 10px;">Chi tiết đáp án:</h3>
+            <table class="admin-table">
+                <thead>
+                    <tr>
+                        <th>Câu hỏi</th>
+                        <th>Trạng thái</th>
+                        <th>Đáp án của bạn</th>
+                        <th>Đáp án đúng</th>
+                    </tr>
+                </thead>
+                <tbody id="exam-result-tbody"></tbody>
+            </table>
+            <button class="btn-primary" style="margin-top: 25px; padding: 12px 25px; font-size: 16px;" onclick="openTSA()">⬅ Hoàn tất & Quay lại danh sách đề</button>
+        </div>
+
+        <!-- MÀN HÌNH QUẢN TRỊ VIÊN 3 CẤP -->
+        <div id="screen-admin-lv1" class="content-box" style="display: none;">
+            <div class="top-bar-actions">
+                <button class="btn-back" onclick="showScreen('screen-exams')">⬅ Thoát Quản trị</button>
+                <button class="btn-success" onclick="openModal('modal-add-student')" style="margin-left: 15px; float: left;">➕ Thêm Học sinh mới</button>
+                <button class="btn-reset" onclick="resetDefaultData()">🔄 Khôi phục gốc</button>
+            </div>
+            <h2>Quản lý Danh sách Học sinh (Cấp 1)</h2>
+            <div class="search-box"><input type="text" id="searchStudentInput" placeholder="🔍 Nhập tên hoặc email..." oninput="renderAdminLevel1()"></div>
+            <table class="admin-table">
+                <thead><tr><th>Họ và Tên (Bấm xem lịch sử)</th><th>Email</th><th>Lượt còn lại (T / Đ / K / TH)</th><th>Số bài đã thi</th></tr></thead>
+                <tbody id="admin-lv1-tbody"></tbody>
+            </table>
+        </div>
+
+        <div id="screen-admin-lv2" class="content-box" style="display: none;">
+            <button class="btn-back" onclick="openAdminLevel1()">⬅ Quay lại danh sách học sinh</button>
+            <h2 id="admin-lv2-title">Lịch sử làm bài</h2>
+            <table class="admin-table">
+                <thead><tr><th>Thời gian</th><th>Bài thi / Đề</th><th>Số câu đúng</th><th>Thời gian làm</th><th>Chi tiết</th></tr></thead>
+                <tbody id="admin-lv2-tbody"></tbody>
+            </table>
+        </div>
+
+        <div id="screen-admin-lv3" class="content-box" style="display: none;">
+            <button class="btn-back" id="btn-back-to-lv2">⬅ Quay lại lịch sử</button>
+            <h2 id="admin-lv3-title">Chi tiết bài thi</h2>
+            <p class="sub-hint">💡 Bấm vào từng câu bên dưới để xem lại nguyên văn đề bài và đáp án.</p>
+            <table class="admin-table">
+                <thead><tr><th>Câu</th><th>Trạng thái</th><th>Thời gian</th><th>Đáp án HS</th><th>Đáp án Đúng</th><th>Thao tác</th></tr></thead>
+                <tbody id="admin-lv3-tbody"></tbody>
+            </table>
+            <div id="question-preview-modal" class="question-preview-box" style="display: none;">
+                <h3 id="preview-q-title">Nội dung câu hỏi</h3>
+                <div id="preview-q-prompt" class="q-prompt"></div>
+                <div id="preview-q-image-box" style="margin: 10px 0; display: none;">
+                    <img id="preview-q-image" src="" style="max-width: 100%; max-height: 260px; border: 1px solid #ccc; border-radius: 6px;">
+                </div>
+                <div id="preview-q-options" class="q-options"></div>
+                <div id="preview-q-compare" class="q-compare"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- POPUP ADMIN -->
+    <div id="modal-add-student" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('modal-add-student')">&times;</span>
+            <h3>➕ Thêm Học Sinh Mới</h3>
+            <p style="font-size: 14px; margin-top: 10px; color: #555;">Nhập Email của học sinh để cấp quyền:</p>
+            <input type="email" id="new-student-email" class="admin-input" placeholder="Ví dụ: nguyenvana@gmail.com">
+            <button class="btn-primary" onclick="submitNewStudent()" style="width: 100%;">Cấp quyền truy cập</button>
+        </div>
+    </div>
+
+    <div id="modal-edit-attempts" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('modal-edit-attempts')">&times;</span>
+            <h3 id="edit-attempts-title" style="color: #004a99;">Chỉnh sửa lượt thi</h3>
+            <div class="edit-attempts-grid">
+                <div><label>Toán học:</label><br><input type="number" id="edit-att-toan" min="0"></div>
+                <div><label>Đọc hiểu:</label><br><input type="number" id="edit-att-doc" min="0"></div>
+                <div><label>Khoa học:</label><br><input type="number" id="edit-att-khoa" min="0"></div>
+                <div><label>Tổng hợp:</label><br><input type="number" id="edit-att-tonghop" min="0"></div>
+            </div>
+            <input type="hidden" id="edit-att-email">
+            <button class="btn-success" onclick="saveAttempts()" style="width: 100%; margin-top: 10px;">💾 Lưu thay đổi</button>
+        </div>
+    </div>
+
+    <!-- Nạp dữ liệu cấu hình và các file đề -->
+    <script src="data-config.js"></script>
+    <script src="de-thi/tsa/toan/de1.js"></script>
+    <script src="de-thi/tsa/dochieu/de1.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>
