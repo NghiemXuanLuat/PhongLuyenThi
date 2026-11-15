@@ -1,11 +1,76 @@
-let studentsDB = JSON.parse(localStorage.getItem('TSA_STUDENTS_DB')) || DEFAULT_STUDENTS_DB;
+let studentsDB = JSON.parse(JSON.stringify(DEFAULT_STUDENTS_DB));
 let currentEmail = null; let currentSubject = "";
 let activeExam = null; let activeTestName = ""; let currentQIndex = 0;
 let userAnswers = {}; let questionTimeSpent = {}; let remainingSeconds = 0;
 let examInterval = null; let draggedWord = null;
-let lastRenderedPassageId = null; // Ghi nhớ văn bản đang mở để không bị cuộn lại từ đầu
+let lastRenderedPassageId = null;
 
-function saveDB() { localStorage.setItem('TSA_STUDENTS_DB', JSON.stringify(studentsDB)); }
+// Firebase không cho phép dấu chấm (.) trong tên khóa nên đổi tạm thành dấu phẩy (,)
+function encodeEmailKey(email) { return email.replace(/\./g, ','); }
+function decodeEmailKey(key) { return key.replace(/,/g, '.'); }
+
+// Tải toàn bộ dữ liệu mới nhất từ Firebase về máy
+async function syncFromCloud() {
+    if (!FIREBASE_DB_URL || FIREBASE_DB_URL.includes("xxxx")) return;
+    try {
+        const res = await fetch(`${FIREBASE_DB_URL}/students.json`);
+        const data = await res.json();
+
+        // Nếu trên đám mây chưa có dữ liệu (lần đầu chạy) -> đẩy dữ liệu mẫu lên
+        if (!data) {
+            await uploadAllToCloud();
+            return;
+        }
+
+        const loadedDB = {};
+        Object.keys(data).forEach(key => {
+            const realEmail = decodeEmailKey(key);
+            const st = data[key];
+            loadedDB[realEmail] = {
+                name: st.name || "",
+                attempts: st.attempts || { "Toán học": 5, "Đọc hiểu": 5, "Khoa học": 5, "Tổng hợp": 2 },
+                history: Array.isArray(st.history) ? st.history : (st.history ? Object.values(st.history) : [])
+            };
+        });
+        studentsDB = loadedDB;
+    } catch (err) {
+        console.error("Lỗi đồng bộ Firebase:", err);
+    }
+}
+
+// Lưu riêng thông tin của 1 học sinh lên Firebase (tránh ghi đè chéo khi nhiều HS thi cùng lúc)
+async function saveStudentToCloud(email) {
+    if (!FIREBASE_DB_URL || FIREBASE_DB_URL.includes("xxxx")) return;
+    try {
+        const key = encodeEmailKey(email);
+        await fetch(`${FIREBASE_DB_URL}/students/${key}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(studentsDB[email])
+        });
+    } catch (err) {
+        alert("⚠️ Lỗi lưu dữ liệu lên máy chủ! Vui lòng kiểm tra kết nối mạng.");
+    }
+}
+
+// Đẩy toàn bộ danh sách lên Firebase (dùng khi khởi tạo hoặc khôi phục gốc)
+async function uploadAllToCloud() {
+    if (!FIREBASE_DB_URL || FIREBASE_DB_URL.includes("xxxx")) return;
+    const payload = {};
+    Object.keys(studentsDB).forEach(email => {
+        payload[encodeEmailKey(email)] = studentsDB[email];
+    });
+    await fetch(`${FIREBASE_DB_URL}/students.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+}
+
+// Tự động đồng bộ ngay khi vừa mở trang web
+window.addEventListener('DOMContentLoaded', () => {
+    syncFromCloud();
+});
 
 function triggerMathJax() {
     if (window.MathJax && window.MathJax.typesetPromise) {
@@ -13,11 +78,12 @@ function triggerMathJax() {
     }
 }
 
-function resetDefaultData() {
-    if (confirm("Khôi phục lại dữ liệu mẫu ban đầu?")) {
-        localStorage.removeItem('TSA_STUDENTS_DB');
+async function resetDefaultData() {
+    if (confirm("Khôi phục lại dữ liệu mẫu ban đầu trên toàn hệ thống?")) {
         studentsDB = JSON.parse(JSON.stringify(DEFAULT_STUDENTS_DB));
+        await uploadAllToCloud();
         renderAdminLevel1();
+        alert("✅ Đã khôi phục dữ liệu gốc lên đám mây!");
     }
 }
 
@@ -32,7 +98,6 @@ function showScreen(screenId) {
     screens.forEach(id => document.getElementById(id).style.display = 'none');
     document.getElementById(screenId).style.display = (screenId === 'screen-exam-room') ? 'flex' : 'block';
 
-    // Nếu thoát khỏi phòng thi thì thu gọn khung main về kích thước chuẩn
     const mainEl = document.getElementById('main-container');
     if (screenId !== 'screen-exam-room') {
         mainEl.classList.remove('wide-exam-mode');
@@ -42,7 +107,7 @@ function openModal(modalId) { document.getElementById(modalId).style.display = '
 function closeModal(modalId) { document.getElementById(modalId).style.display = 'none'; }
 
 // --- ĐĂNG NHẬP ---
-function handleAuthClick() {
+async function handleAuthClick() {
     if (examInterval) { alert("Vui lòng nộp bài trước khi đăng xuất!"); return; }
     if (currentEmail) {
         currentEmail = null;
@@ -55,13 +120,26 @@ function handleAuthClick() {
 
     const email = (prompt("Nhập Email đã đăng ký:") || "").trim().toLowerCase();
     if (!email) return;
-    if (!studentsDB[email]) { alert("Email chưa được cấp quyền!"); return; }
+
+    document.getElementById('user-display').innerText = "⏳ Đang kiểm tra dữ liệu...";
+    await syncFromCloud();
+
+    if (!studentsDB[email]) {
+        document.getElementById('user-display').innerText = "Chưa đăng nhập";
+        alert("Email chưa được cấp quyền!");
+        return;
+    }
 
     if (!studentsDB[email].name || studentsDB[email].name.trim() === "") {
         let newName = prompt("Vui lòng nhập Họ và Tên của bạn (lưu 1 lần duy nhất):");
-        if (!newName || newName.trim() === "") return;
-        studentsDB[email].name = newName.trim(); saveDB();
+        if (!newName || newName.trim() === "") {
+            document.getElementById('user-display').innerText = "Chưa đăng nhập";
+            return;
+        }
+        studentsDB[email].name = newName.trim();
+        await saveStudentToCloud(email);
     }
+
     currentEmail = email;
     document.getElementById('user-display').innerHTML = `👤 <b>${studentsDB[email].name}</b> (${currentEmail})`;
     document.getElementById('btnLogin').innerText = "Đăng xuất";
@@ -71,7 +149,12 @@ function handleAuthClick() {
 }
 
 // --- VÀO THI ---
-function openTSA() { showScreen('screen-tsa-subjects'); updateTSAAttemptsUI(); }
+async function openTSA() {
+    showScreen('screen-tsa-subjects');
+    if (currentEmail) await syncFromCloud();
+    updateTSAAttemptsUI();
+}
+
 function updateTSAAttemptsUI() {
     const subjects = ["Toán học", "Đọc hiểu", "Khoa học", "Tổng hợp"];
     if (!currentEmail) {
@@ -126,14 +209,12 @@ function updateCountdownDisplay() {
     document.getElementById('exam-countdown').innerText = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-// --- HIỂN THỊ CÂU HỎI & TỰ ĐỘNG CHIA ĐÔI MÀN HÌNH KHI CÓ BÀI ĐỌC ---
 function renderCurrentQuestion() {
     const q = activeExam.questions[currentQIndex];
     const mainEl = document.getElementById('main-container');
     const bodyGrid = document.getElementById('exam-body-grid');
     const passagePanel = document.getElementById('exam-passage-panel');
 
-    // Kiểm tra xem câu hỏi hiện tại có gắn với bài đọc (passageId hoặc passage) không
     let passageObj = null;
     if (q.passageId && activeExam.passages && activeExam.passages[q.passageId]) {
         passageObj = activeExam.passages[q.passageId];
@@ -142,12 +223,10 @@ function renderCurrentQuestion() {
     }
 
     if (passageObj) {
-        // Bật chế độ chia đôi màn hình
         mainEl.classList.add('wide-exam-mode');
         bodyGrid.classList.add('split-mode');
         passagePanel.style.display = "block";
 
-        // Chỉ nạp lại nội dung văn bản và cuộn lên đầu nếu chuyển sang Văn bản mới (VD: từ VB1 sang VB2)
         const currentKey = q.passageId || q.id;
         if (lastRenderedPassageId !== currentKey) {
             document.getElementById('passage-header-tag').innerText = passageObj.header || "VĂN BẢN ĐỌC HIỂU";
@@ -157,7 +236,6 @@ function renderCurrentQuestion() {
             lastRenderedPassageId = currentKey;
         }
     } else {
-        // Tắt chế độ chia đôi (dành cho môn Toán)
         mainEl.classList.remove('wide-exam-mode');
         bodyGrid.classList.remove('split-mode');
         passagePanel.style.display = "none";
@@ -331,7 +409,6 @@ function renderPalette() {
     ).join("");
 }
 
-// --- CHẤM ĐIỂM HỖ TRỢ NHIỀU ĐÁP ÁN TƯƠNG ĐƯƠNG ---
 function checkQuestionCorrect(q, uAns) {
     if (!uAns) return false;
     if (q.type === "trac_nghiem") return uAns === q.correctAnswer;
@@ -366,8 +443,8 @@ function formatAnswerForDisplay(q, ansObj) {
     return JSON.stringify(ansObj);
 }
 
-// ================= NỘP BÀI VÀ HIỂN THỊ KẾT QUẢ =================
-function submitExam(isAuto) {
+// ================= NỘP BÀI VÀ ĐỒNG BỘ KẾT QUẢ LÊN ĐÁM MÂY =================
+async function submitExam(isAuto) {
     if (!isAuto && !confirm("Chắc chắn nộp bài?")) return;
     clearInterval(examInterval); examInterval = null;
 
@@ -402,7 +479,11 @@ function submitExam(isAuto) {
         totalTime: `${Math.floor(totalSpent/60)}p ${totalSpent%60}s`,
         details: details
     });
-    saveDB();
+
+    document.getElementById('exam-result-summary').innerHTML = `<p>⏳ Đang lưu bài thi lên hệ thống...</p>`;
+    showScreen('screen-exam-result');
+
+    await saveStudentToCloud(currentEmail);
 
     document.getElementById('exam-result-summary').innerHTML = `
         <p>Họ tên Thí sinh: <b>${studentsDB[currentEmail].name}</b></p>
@@ -427,18 +508,23 @@ function submitExam(isAuto) {
         `;
     });
 
-    showScreen('screen-exam-result');
     triggerMathJax();
 }
 
-// ================= QUẢN TRỊ VIÊN 3 CẤP =================
-function submitNewStudent() {
+// ================= QUẢN TRỊ VIÊN 3 CẤP (ĐỒNG BỘ TRỰC TUYẾN) =================
+async function submitNewStudent() {
     const newEmail = document.getElementById('new-student-email').value.trim().toLowerCase();
     if (!newEmail) { alert("Vui lòng nhập Email!"); return; }
+    await syncFromCloud();
     if (studentsDB[newEmail]) { alert("Thất bại: Email này đã tồn tại trong hệ thống rồi!"); return; }
     studentsDB[newEmail] = { name: "", attempts: { "Toán học": 5, "Đọc hiểu": 5, "Khoa học": 5, "Tổng hợp": 2 }, history: [] };
-    saveDB(); closeModal('modal-add-student'); document.getElementById('new-student-email').value = ""; renderAdminLevel1(); alert("✅ Đã cấp quyền truy cập thành công cho: " + newEmail);
+    await saveStudentToCloud(newEmail);
+    closeModal('modal-add-student');
+    document.getElementById('new-student-email').value = "";
+    renderAdminLevel1();
+    alert("✅ Đã cấp quyền truy cập và đồng bộ cho: " + newEmail);
 }
+
 function openEditAttempts(studentEmail) {
     document.getElementById('edit-attempts-title').innerText = `Chỉnh sửa lượt: ${studentEmail}`;
     document.getElementById('edit-att-email').value = studentEmail;
@@ -447,15 +533,27 @@ function openEditAttempts(studentEmail) {
     document.getElementById('edit-att-khoa').value = att["Khoa học"]; document.getElementById('edit-att-tonghop').value = att["Tổng hợp"];
     openModal('modal-edit-attempts');
 }
-function saveAttempts() {
+
+async function saveAttempts() {
     const targetEmail = document.getElementById('edit-att-email').value; if (!studentsDB[targetEmail]) return;
     studentsDB[targetEmail].attempts["Toán học"] = parseInt(document.getElementById('edit-att-toan').value) || 0;
     studentsDB[targetEmail].attempts["Đọc hiểu"] = parseInt(document.getElementById('edit-att-doc').value) || 0;
     studentsDB[targetEmail].attempts["Khoa học"] = parseInt(document.getElementById('edit-att-khoa').value) || 0;
     studentsDB[targetEmail].attempts["Tổng hợp"] = parseInt(document.getElementById('edit-att-tonghop').value) || 0;
-    saveDB(); closeModal('modal-edit-attempts'); renderAdminLevel1(); alert("✅ Đã lưu thay đổi số lượt thi thành công!");
+    await saveStudentToCloud(targetEmail);
+    closeModal('modal-edit-attempts');
+    renderAdminLevel1();
+    alert("✅ Đã lưu và đồng bộ số lượt thi lên đám mây!");
 }
-function openAdminLevel1() { if (!ADMIN_EMAILS.includes(currentEmail)) return; showScreen('screen-admin-lv1'); renderAdminLevel1(); }
+
+async function openAdminLevel1() {
+    if (!ADMIN_EMAILS.includes(currentEmail)) return;
+    showScreen('screen-admin-lv1');
+    document.getElementById('admin-lv1-tbody').innerHTML = `<tr><td colspan="4" style="text-align:center;">⏳ Đang tải dữ liệu mới nhất từ đám mây...</td></tr>`;
+    await syncFromCloud();
+    renderAdminLevel1();
+}
+
 function renderAdminLevel1() {
     const kw = document.getElementById('searchStudentInput').value.trim().toLowerCase();
     const tbody = document.getElementById('admin-lv1-tbody'); tbody.innerHTML = "";
@@ -469,6 +567,7 @@ function renderAdminLevel1() {
         }
     });
 }
+
 function openAdminLevel2(email) {
     const st = studentsDB[email];
     document.getElementById('admin-lv2-title').innerText = `Lịch sử thi: ${st.name||"Chưa có tên"} (${email})`;
@@ -483,6 +582,7 @@ function openAdminLevel2(email) {
     }
     showScreen('screen-admin-lv2');
 }
+
 function openAdminLevel3(email, idx) {
     const rec = studentsDB[email].history[idx];
     document.getElementById('btn-back-to-lv2').onclick = () => openAdminLevel2(email);
@@ -502,6 +602,7 @@ function openAdminLevel3(email, idx) {
     showScreen('screen-admin-lv3');
     triggerMathJax();
 }
+
 function previewQuestionDetail(email, historyIdx, detailIdx) {
     const rec = studentsDB[email].history[historyIdx];
     const item = rec.details[detailIdx];
