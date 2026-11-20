@@ -2,8 +2,8 @@ window.KHO_DE = window.KHO_DE || {};
 window.KHO_DE.tsa = window.KHO_DE.tsa || {};
 window.KHO_DE.tsa["Toán học"] = window.KHO_DE.tsa["Toán học"] || {};
 
-window.KHO_DE.tsa["Toán học"]["Đề số 1"] = {
-    title: "Đề thi Đánh giá Tư duy TSA - Toán học - Đề số 1",
+window.KHO_DE.tsa["Toán học"]["Đề số 2"] = {
+    title: "Đề thi Đánh giá Tư duy TSA - Toán học - Đề số 2",
     duration: 60,
     "questions": [
         {
