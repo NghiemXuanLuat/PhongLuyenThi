@@ -2,9 +2,9 @@ window.KHO_DE = window.KHO_DE || {};
 window.KHO_DE.tsa = window.KHO_DE.tsa || {};
 window.KHO_DE.tsa["Toán học"] = window.KHO_DE.tsa["Toán học"] || {};
 
-window.KHO_DE.tsa["Toán học"]["Đề số 2"] = {
-    "title": "Đề thi Đánh giá Tư duy TSA 2027 - Tư duy Toán học - Đề số 2 (SHIBA 02)",
-    "duration": 60,
+window.KHO_DE.tsa["Toán học"]["Đề số 1"] = {
+    title: "Đề thi Đánh giá Tư duy TSA - Toán học - Đề số 1",
+    duration: 60,
     "questions": [
         {
             "id": "C1",
